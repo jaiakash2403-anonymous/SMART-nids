@@ -1,0 +1,49 @@
+from scapy.all import sniff, Raw, IP
+import requests
+import time
+import sys
+
+COLLECTOR_URL = "http://127.0.0.1:5000/event"
+
+SIGNATURES = [
+    "MALWARE_SIG",
+    "NMAP_SCAN",
+    "SQL_INJECTION"
+]
+
+def send_event(event):
+    try:
+        requests.post(COLLECTOR_URL, json=event)
+    except Exception as e:
+        print("Collector error:", e)
+
+def process_packet(pkt):
+    if pkt.haslayer(Raw):
+        payload = pkt[Raw].load.decode(errors="ignore")
+
+        for sig in SIGNATURES:
+            if sig in payload:
+                src = pkt[IP].src if pkt.haslayer(IP) else "unknown"
+                dst = pkt[IP].dst if pkt.haslayer(IP) else "unknown"
+
+                event = {
+                    "sensor": "nids",
+                    "type": "signature",
+                    "signature": sig,
+                    "src": src,
+                    "dst": dst,
+                    "raw_preview": payload[:100],
+                    "timestamp": time.time()
+                }
+
+                print(f"[ALERT] Signature detected: {sig}")
+
+                send_event(event)
+
+def start(interface):
+    print(f"Monitoring interface: {interface}")
+    sniff(iface=interface, prn=process_packet, store=False)
+
+if __name__ == "__main__":
+    iface = sys.argv[1] if len(sys.argv) > 1 else "lo"
+    start(iface)
